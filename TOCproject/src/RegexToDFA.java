@@ -3,32 +3,65 @@ import java.util.*;
 public class RegexToDFA {
 
     private static final char CONCAT = '.';
-    private static class NFAState {
-        int id;
-        Map<Character, Set<NFAState>> trans = new HashMap<>();
-        Set<NFAState> eps = new HashSet<>();
 
-        NFAState(int id) { this.id = id; }
-        void t(char s, NFAState n) { trans.computeIfAbsent(s, k -> new HashSet<>()).add(n); }
-        void e(NFAState n) { eps.add(n); }
+    private static abstract class SyntaxNode {
+        boolean nullable;
+        Set<Integer> firstpos = new HashSet<>();
+        Set<Integer> lastpos = new HashSet<>();
     }
 
-    private static class Frag {
-        NFAState s, e;
-        Frag(NFAState s, NFAState e) { this.s = s; this.e = e; }
+    private static class LeafNode extends SyntaxNode {
+        LeafNode(int pos) {
+            this.nullable = false;
+            this.firstpos.add(pos);
+            this.lastpos.add(pos);
+        }
     }
 
-    private static class NFA {
-        NFAState s, a;
-        Set<Character> alpha;
-        NFA(NFAState s, NFAState a, Set<Character> alpha) { this.s = s; this.a = a; this.alpha = alpha; }
+    private static class ConcatNode extends SyntaxNode {
+        ConcatNode(SyntaxNode left, SyntaxNode right, Map<Integer, Set<Integer>> followpos) {
+            this.nullable = left.nullable && right.nullable;
+            this.firstpos.addAll(left.firstpos);
+            if (left.nullable) this.firstpos.addAll(right.firstpos);
+            
+            this.lastpos.addAll(right.lastpos);
+            if (right.nullable) this.lastpos.addAll(left.lastpos);
+            
+            for (int i : left.lastpos) {
+                followpos.computeIfAbsent(i, k -> new HashSet<>()).addAll(right.firstpos);
+            }
+        }
+    }
+
+    private static class UnionNode extends SyntaxNode {
+        UnionNode(SyntaxNode left, SyntaxNode right) {
+            this.nullable = left.nullable || right.nullable;
+            this.firstpos.addAll(left.firstpos);
+            this.firstpos.addAll(right.firstpos);
+            this.lastpos.addAll(left.lastpos);
+            this.lastpos.addAll(right.lastpos);
+        }
+    }
+
+    private static class StarNode extends SyntaxNode {
+        StarNode(SyntaxNode child, Map<Integer, Set<Integer>> followpos) {
+            this.nullable = true;
+            this.firstpos.addAll(child.firstpos);
+            this.lastpos.addAll(child.lastpos);
+            
+            for (int i : child.lastpos) {
+                followpos.computeIfAbsent(i, k -> new HashSet<>()).addAll(child.firstpos);
+            }
+        }
     }
 
     public static DFA buildFromRegex(String regex) {
         if (regex == null || regex.trim().isEmpty()) throw new IllegalArgumentException("Regex cannot be empty.");
         String normalized = regex.replaceAll("\\s+", "");
         if (normalized.isEmpty()) throw new IllegalArgumentException("Regex cannot be empty.");
-        return convertNFAToDFA(buildNFA(toPostfix(addConcatOperator(normalized))));
+        
+        normalized = "(" + normalized + ")#";
+        return buildDFAFromPostfix(toPostfix(addConcatOperator(normalized)));
     }
 
     private static String addConcatOperator(String regex) {
@@ -68,93 +101,83 @@ public class RegexToDFA {
         return out.toString();
     }
 
-    private static NFA buildNFA(String postfix) {
-        Deque<Frag> st = new ArrayDeque<>();
+    private static DFA buildDFAFromPostfix(String postfix) {
+        Deque<SyntaxNode> st = new ArrayDeque<>();
+        Map<Integer, Set<Integer>> followpos = new HashMap<>();
+        Map<Integer, Character> posToSym = new HashMap<>();
         Set<Character> alpha = new HashSet<>();
-        int id = 0;
+        
+        int pos = 1;
+        int acceptPos = -1;
+        
         for (char tok : postfix.toCharArray()) {
             if (isLiteral(tok)) {
-                NFAState a = new NFAState(id++), b = new NFAState(id++);
-                a.t(tok, b);
-                st.push(new Frag(a, b));
-                alpha.add(tok);
+                posToSym.put(pos, tok);
+                if (tok == '#') acceptPos = pos;
+                else alpha.add(tok);
+                st.push(new LeafNode(pos));
+                followpos.put(pos, new HashSet<>());
+                pos++;
             } else if (tok == CONCAT) {
                 if (st.size() < 2) throw new IllegalArgumentException("Invalid regex: malformed concatenation.");
-                Frag r = st.pop(), l = st.pop();
-                l.e.e(r.s);
-                st.push(new Frag(l.s, r.e));
+                SyntaxNode right = st.pop();
+                SyntaxNode left = st.pop();
+                st.push(new ConcatNode(left, right, followpos));
             } else if (tok == '|' || tok == 'U') {
                 if (st.size() < 2) throw new IllegalArgumentException("Invalid regex: malformed union.");
-                Frag r = st.pop(), l = st.pop();
-                NFAState s = new NFAState(id++), e = new NFAState(id++);
-                s.e(l.s); s.e(r.s); l.e.e(e); r.e.e(e);
-                st.push(new Frag(s, e));
+                SyntaxNode right = st.pop();
+                SyntaxNode left = st.pop();
+                st.push(new UnionNode(left, right));
             } else if (tok == '*') {
                 if (st.isEmpty()) throw new IllegalArgumentException("Invalid regex: malformed Kleene star.");
-                Frag f = st.pop();
-                NFAState s = new NFAState(id++), e = new NFAState(id++);
-                s.e(f.s); s.e(e); f.e.e(f.s); f.e.e(e);
-                st.push(new Frag(s, e));
+                SyntaxNode child = st.pop();
+                st.push(new StarNode(child, followpos));
             } else {
                 throw new IllegalArgumentException("Unsupported regex token: " + tok);
             }
         }
+        
         if (st.size() != 1) throw new IllegalArgumentException("Invalid regex: unresolved expression.");
-        Frag r = st.pop();
-        return new NFA(r.s, r.e, alpha);
-    }
-
-    private static DFA convertNFAToDFA(NFA nfa) {
+        SyntaxNode root = st.pop();
+        
+        // DFA construction
         DFA dfa = new DFA();
-        Map<Set<NFAState>, State> map = new HashMap<>();
-        Queue<Set<NFAState>> q = new ArrayDeque<>();
-        Set<NFAState> start = epsilonClosure(Collections.singleton(nfa.s));
-        State s0 = new State(0, containsAccept(start, nfa.a));
-        map.put(start, s0);
-        q.add(start);
+        Map<Set<Integer>, State> dfaStates = new HashMap<>();
+        Queue<Set<Integer>> q = new ArrayDeque<>();
+        
+        Set<Integer> startSet = root.firstpos;
+        State s0 = new State(0, startSet.contains(acceptPos));
+        dfaStates.put(startSet, s0);
+        q.add(startSet);
         dfa.addState(s0);
+        
         int id = 1;
         while (!q.isEmpty()) {
-            Set<NFAState> cur = q.poll();
-            State ds = map.get(cur);
-            for (char sym : nfa.alpha) {
-                Set<NFAState> mv = move(cur, sym);
-                if (mv.isEmpty()) continue;
-                Set<NFAState> nxt = epsilonClosure(mv);
-                State ns = map.get(nxt);
+            Set<Integer> curSet = q.poll();
+            State ds = dfaStates.get(curSet);
+            
+            for (char sym : alpha) {
+                Set<Integer> nextSet = new HashSet<>();
+                for (int p : curSet) {
+                    if (posToSym.get(p) != null && posToSym.get(p) == sym) {
+                        nextSet.addAll(followpos.get(p));
+                    }
+                }
+                
+                if (nextSet.isEmpty()) continue;
+                
+                State ns = dfaStates.get(nextSet);
                 if (ns == null) {
-                    ns = new State(id++, containsAccept(nxt, nfa.a));
-                    map.put(nxt, ns);
-                    q.add(nxt);
+                    ns = new State(id++, nextSet.contains(acceptPos));
+                    dfaStates.put(nextSet, ns);
+                    q.add(nextSet);
                     dfa.addState(ns);
                 }
                 ds.addTransition(sym, ns);
             }
         }
+        
         return dfa;
-    }
-
-    private static Set<NFAState> epsilonClosure(Set<NFAState> states) {
-        Set<NFAState> c = new HashSet<>(states);
-        Deque<NFAState> st = new ArrayDeque<>(states);
-        while (!st.isEmpty()) {
-            NFAState cur = st.pop();
-            for (NFAState n : cur.eps) if (c.add(n)) st.push(n);
-        }
-        return c;
-    }
-
-    private static Set<NFAState> move(Set<NFAState> states, char symbol) {
-        Set<NFAState> r = new HashSet<>();
-        for (NFAState st : states) {
-            Set<NFAState> t = st.trans.get(symbol);
-            if (t != null) r.addAll(t);
-        }
-        return r;
-    }
-
-    private static boolean containsAccept(Set<NFAState> states, NFAState accept) {
-        return states.contains(accept);
     }
 
     private static boolean isOperator(char c) {
@@ -169,7 +192,7 @@ public class RegexToDFA {
     }
 
     private static boolean isLiteral(char c) {
-        return Character.isLetterOrDigit(c) && c != 'U';
+        return (Character.isLetterOrDigit(c) && c != 'U') || c == '#';
     }
 
     public static List<String> describeDFA(DFA dfa) {

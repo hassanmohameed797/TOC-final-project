@@ -27,8 +27,6 @@ public class TOC {
                 continue;
             }
 
-            System.out.println("Note: matching is for the entire string.");
-            System.out.println("Example: regex 'abb' matches only 'abb'.");
             System.out.println("Use '(a|b)*abb' to match strings ending with 'abb'.");
             System.out.println("Use 'U' for union (e.g., aUb is same as a|b).");
             System.out.println("Generated DFA:");
@@ -38,7 +36,7 @@ public class TOC {
             }
 
             while (true) {
-                System.out.print("Enter a test string, or enter a new regex (include |, U, *, or parentheses) to replace the DFA; type 'exit' to quit: ");
+                System.out.print("Enter a test string, or enter a new regex (include |, U, *, or parentheses) to create new dfa or type 'exit' to quit: ");
                 String input = sc.nextLine();
 
                 if (input.equalsIgnoreCase("exit")) {
@@ -47,7 +45,7 @@ public class TOC {
                     return;
                 }
 
-                // If input looks like a regex (contains operator chars), try to rebuild DFA
+                // If input is regex rebuild a new dfa
                 if (input.indexOf('|') >= 0 || input.indexOf('U') >= 0 || input.indexOf('*') >= 0 || input.indexOf('(') >= 0 || input.indexOf(')') >= 0) {
                     try {
                         DFA newDfa = RegexToDFA.buildFromRegex(input);

@@ -20,5 +20,3 @@ public class DFA {
         return current.isAccept;
     }
 }
-
-
