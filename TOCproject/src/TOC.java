@@ -36,7 +36,8 @@ public class TOC {
             }
 
             while (true) {
-                System.out.print("Enter a test string, or enter a new regex (include |, U, *, or parentheses) to create new dfa or type 'exit' to quit: ");
+                System.out.print(
+                        "Enter a test string, or enter a new regex (include |, U, *, or parentheses) to create new dfa or type 'exit' to quit: ");
                 String input = sc.nextLine();
 
                 if (input.equalsIgnoreCase("exit")) {
@@ -46,14 +47,16 @@ public class TOC {
                 }
 
                 // If input is regex rebuild a new dfa
-                if (input.indexOf('|') >= 0 || input.indexOf('U') >= 0 || input.indexOf('*') >= 0 || input.indexOf('(') >= 0 || input.indexOf(')') >= 0) {
+                if (input.indexOf('|') >= 0 || input.indexOf('U') >= 0 || input.indexOf('*') >= 0
+                        || input.indexOf('(') >= 0 || input.indexOf(')') >= 0) {
                     try {
                         DFA newDfa = RegexToDFA.buildFromRegex(input);
                         if (newDfa != null) {
                             dfa = newDfa;
                             System.out.println("Replaced current DFA with new regex: " + input);
                             System.out.println("Generated DFA:");
-                            for (String line : RegexToDFA.describeDFA(dfa)) System.out.println(line);
+                            for (String line : RegexToDFA.describeDFA(dfa))
+                                System.out.println(line);
                         }
                     } catch (IllegalArgumentException e) {
                         System.out.println("Invalid regular expression: " + e.getMessage());

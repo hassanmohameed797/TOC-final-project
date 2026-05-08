@@ -2,181 +2,204 @@ import java.util.*;
 
 public class RegexToDFA {
 
+    // concat
     private static final char CONCAT = '.';
 
-    private static abstract class SyntaxNode {
+    // base node class
+    private static abstract class Node {
         boolean nullable;
         Set<Integer> firstpos = new HashSet<>();
         Set<Integer> lastpos = new HashSet<>();
     }
 
-    private static class LeafNode extends SyntaxNode {
-        LeafNode(int pos) {
-            this.nullable = false;
-            this.firstpos.add(pos);
-            this.lastpos.add(pos);
+    // leaf node (single symbol)
+    private static class Leaf extends Node {
+        Leaf(int pos) {
+            nullable = false;
+            firstpos.add(pos);
+            lastpos.add(pos);
         }
     }
 
-    private static class ConcatNode extends SyntaxNode {
-        ConcatNode(SyntaxNode left, SyntaxNode right, Map<Integer, Set<Integer>> followpos) {
-            this.nullable = left.nullable && right.nullable;
-            this.firstpos.addAll(left.firstpos);
-            if (left.nullable) this.firstpos.addAll(right.firstpos);
-            
-            this.lastpos.addAll(right.lastpos);
-            if (right.nullable) this.lastpos.addAll(left.lastpos);
-            
+    // concat node
+    private static class Concat extends Node {
+        Concat(Node left, Node right, Map<Integer, Set<Integer>> followpos) {
+            nullable = left.nullable && right.nullable;
+
+            firstpos.addAll(left.firstpos);
+            if (left.nullable)
+                firstpos.addAll(right.firstpos);
+
+            lastpos.addAll(right.lastpos);
+            if (right.nullable)
+                lastpos.addAll(left.lastpos);
+
+            // update followpos
             for (int i : left.lastpos) {
-                followpos.computeIfAbsent(i, k -> new HashSet<>()).addAll(right.firstpos);
+                if (!followpos.containsKey(i))
+                    followpos.put(i, new HashSet<>());
+                followpos.get(i).addAll(right.firstpos);
             }
         }
     }
 
-    private static class UnionNode extends SyntaxNode {
-        UnionNode(SyntaxNode left, SyntaxNode right) {
-            this.nullable = left.nullable || right.nullable;
-            this.firstpos.addAll(left.firstpos);
-            this.firstpos.addAll(right.firstpos);
-            this.lastpos.addAll(left.lastpos);
-            this.lastpos.addAll(right.lastpos);
+    // union node
+    private static class Union extends Node {
+        Union(Node left, Node right) {
+            nullable = left.nullable || right.nullable;
+            firstpos.addAll(left.firstpos);
+            firstpos.addAll(right.firstpos);
+            lastpos.addAll(left.lastpos);
+            lastpos.addAll(right.lastpos);
         }
     }
 
-    private static class StarNode extends SyntaxNode {
-        StarNode(SyntaxNode child, Map<Integer, Set<Integer>> followpos) {
-            this.nullable = true;
-            this.firstpos.addAll(child.firstpos);
-            this.lastpos.addAll(child.lastpos);
-            
+    // star node
+    private static class Star extends Node {
+        Star(Node child, Map<Integer, Set<Integer>> followpos) {
+            nullable = true;
+            firstpos.addAll(child.firstpos);
+            lastpos.addAll(child.lastpos);
+
             for (int i : child.lastpos) {
-                followpos.computeIfAbsent(i, k -> new HashSet<>()).addAll(child.firstpos);
+                if (!followpos.containsKey(i))
+                    followpos.put(i, new HashSet<>());
+                followpos.get(i).addAll(child.firstpos);
             }
         }
     }
 
+    // main build method
     public static DFA buildFromRegex(String regex) {
-        if (regex == null || regex.trim().isEmpty()) throw new IllegalArgumentException("Regex cannot be empty.");
-        String normalized = regex.replaceAll("\\s+", "");
-        if (normalized.isEmpty()) throw new IllegalArgumentException("Regex cannot be empty.");
-        
-        normalized = "(" + normalized + ")#";
-        return buildDFAFromPostfix(toPostfix(addConcatOperator(normalized)));
-    }
-
-    private static String addConcatOperator(String regex) {
-        StringBuilder out = new StringBuilder();
-        for (int i = 0; i < regex.length(); i++) {
-            char current = regex.charAt(i);
-            out.append(current);
-            if (i + 1 < regex.length() && needsConcat(current, regex.charAt(i + 1))) out.append(CONCAT);
+        if (regex == null || regex.trim().isEmpty()) {
+            throw new IllegalArgumentException("Regex cannot be empty");
         }
-        return out.toString();
+        regex = regex.replaceAll("\\s+", "");
+        regex = "(" + regex + ")#"; // add end marker
+
+        String withConcat = addConcat(regex);
+        String postfix = toPostfix(withConcat);
+
+        return buildDFA(postfix);
     }
 
-    private static boolean needsConcat(char left, char right) {
-        return (isLiteral(left) || left == ')' || left == '*') && (isLiteral(right) || right == '(');
+    // add explicit concat operator
+    private static String addConcat(String regex) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < regex.length(); i++) {
+            char c = regex.charAt(i);
+            sb.append(c);
+            if (i + 1 < regex.length() && needsConcat(c, regex.charAt(i + 1))) {
+                sb.append(CONCAT);
+            }
+        }
+        return sb.toString();
     }
 
+    private static boolean needsConcat(char a, char b) {
+        return (isLiteral(a) || a == ')' || a == '*') && (isLiteral(b) || b == '(');
+    }
+
+    // convert to postfix using shunting yard
     private static String toPostfix(String regex) {
         StringBuilder out = new StringBuilder();
-        Deque<Character> ops = new ArrayDeque<>();
-        for (char t : regex.toCharArray()) {
-            if (isLiteral(t)) out.append(t);
-            else if (t == '(') ops.push(t);
-            else if (t == ')') {
-                while (!ops.isEmpty() && ops.peek() != '(') out.append(ops.pop());
-                if (ops.isEmpty() || ops.pop() != '(') throw new IllegalArgumentException("Mismatched parentheses in regex.");
-            } else if (isOperator(t)) {
-                while (!ops.isEmpty() && ops.peek() != '(' && precedence(ops.peek()) >= precedence(t)) out.append(ops.pop());
-                ops.push(t);
-            } else {
-                throw new IllegalArgumentException("Unsupported symbol in regex: " + t);
+        Deque<Character> stack = new ArrayDeque<>();
+
+        for (char c : regex.toCharArray()) {
+            if (isLiteral(c)) {
+                out.append(c);
+            } else if (c == '(') {
+                stack.push(c);
+            } else if (c == ')') {
+                while (!stack.isEmpty() && stack.peek() != '(') {
+                    out.append(stack.pop());
+                }
+                stack.pop(); // remove '('
+            } else if (isOperator(c)) {
+                while (!stack.isEmpty() && stack.peek() != '(' && prec(stack.peek()) >= prec(c)) {
+                    out.append(stack.pop());
+                }
+                stack.push(c);
             }
         }
-        while (!ops.isEmpty()) {
-            if (ops.peek() == '(') throw new IllegalArgumentException("Mismatched parentheses in regex.");
-            out.append(ops.pop());
+        while (!stack.isEmpty()) {
+            out.append(stack.pop());
         }
         return out.toString();
     }
 
-    private static DFA buildDFAFromPostfix(String postfix) {
-        Deque<SyntaxNode> st = new ArrayDeque<>();
+    // build DFA from postfix
+    private static DFA buildDFA(String postfix) {
+        Deque<Node> stack = new ArrayDeque<>();
         Map<Integer, Set<Integer>> followpos = new HashMap<>();
         Map<Integer, Character> posToSym = new HashMap<>();
-        Set<Character> alpha = new HashSet<>();
-        
+        Set<Character> alphabet = new HashSet<>();
+
         int pos = 1;
         int acceptPos = -1;
-        
-        for (char tok : postfix.toCharArray()) {
-            if (isLiteral(tok)) {
-                posToSym.put(pos, tok);
-                if (tok == '#') acceptPos = pos;
-                else alpha.add(tok);
-                st.push(new LeafNode(pos));
+
+        for (char c : postfix.toCharArray()) {
+            if (isLiteral(c)) {
+                posToSym.put(pos, c);
+                if (c == '#')
+                    acceptPos = pos;
+                else
+                    alphabet.add(c);
+                stack.push(new Leaf(pos));
                 followpos.put(pos, new HashSet<>());
                 pos++;
-            } else if (tok == CONCAT) {
-                if (st.size() < 2) throw new IllegalArgumentException("Invalid regex: malformed concatenation.");
-                SyntaxNode right = st.pop();
-                SyntaxNode left = st.pop();
-                st.push(new ConcatNode(left, right, followpos));
-            } else if (tok == '|' || tok == 'U') {
-                if (st.size() < 2) throw new IllegalArgumentException("Invalid regex: malformed union.");
-                SyntaxNode right = st.pop();
-                SyntaxNode left = st.pop();
-                st.push(new UnionNode(left, right));
-            } else if (tok == '*') {
-                if (st.isEmpty()) throw new IllegalArgumentException("Invalid regex: malformed Kleene star.");
-                SyntaxNode child = st.pop();
-                st.push(new StarNode(child, followpos));
-            } else {
-                throw new IllegalArgumentException("Unsupported regex token: " + tok);
+            } else if (c == CONCAT) {
+                Node right = stack.pop();
+                Node left = stack.pop();
+                stack.push(new Concat(left, right, followpos));
+            } else if (c == '|' || c == 'U') {
+                Node right = stack.pop();
+                Node left = stack.pop();
+                stack.push(new Union(left, right));
+            } else if (c == '*') {
+                Node child = stack.pop();
+                stack.push(new Star(child, followpos));
             }
         }
-        
-        if (st.size() != 1) throw new IllegalArgumentException("Invalid regex: unresolved expression.");
-        SyntaxNode root = st.pop();
-        
+
+        Node root = stack.pop();
+
         // DFA construction
         DFA dfa = new DFA();
         Map<Set<Integer>, State> dfaStates = new HashMap<>();
         Queue<Set<Integer>> q = new ArrayDeque<>();
-        
+
         Set<Integer> startSet = root.firstpos;
-        State s0 = new State(0, startSet.contains(acceptPos));
-        dfaStates.put(startSet, s0);
+        State startState = new State(0, startSet.contains(acceptPos));
+        dfaStates.put(startSet, startState);
         q.add(startSet);
-        dfa.addState(s0);
-        
+        dfa.addState(startState);
+
         int id = 1;
         while (!q.isEmpty()) {
             Set<Integer> curSet = q.poll();
-            State ds = dfaStates.get(curSet);
-            
-            for (char sym : alpha) {
+            State curState = dfaStates.get(curSet);
+
+            for (char sym : alphabet) {
                 Set<Integer> nextSet = new HashSet<>();
                 for (int p : curSet) {
-                    if (posToSym.get(p) != null && posToSym.get(p) == sym) {
+                    if (posToSym.get(p) == sym) {
                         nextSet.addAll(followpos.get(p));
                     }
                 }
-                
-                if (nextSet.isEmpty()) continue;
-                
-                State ns = dfaStates.get(nextSet);
-                if (ns == null) {
-                    ns = new State(id++, nextSet.contains(acceptPos));
-                    dfaStates.put(nextSet, ns);
+                if (nextSet.isEmpty())
+                    continue;
+
+                State nextState = dfaStates.get(nextSet);
+                if (nextState == null) {
+                    nextState = new State(id++, nextSet.contains(acceptPos));
+                    dfaStates.put(nextSet, nextState);
                     q.add(nextSet);
-                    dfa.addState(ns);
+                    dfa.addState(nextState);
                 }
-                ds.addTransition(sym, ns);
+                curState.addTransition(sym, nextState);
             }
         }
-        
         return dfa;
     }
 
@@ -184,23 +207,27 @@ public class RegexToDFA {
         return c == '|' || c == '*' || c == CONCAT || c == 'U';
     }
 
-    private static int precedence(char operator) {
-        if (operator == '*') return 3;
-        if (operator == CONCAT) return 2;
-        if (operator == '|' || operator == 'U') return 1;
-        return -1;
+    private static int prec(char c) {
+        if (c == '*')
+            return 3;
+        if (c == CONCAT)
+            return 2;
+        if (c == '|' || c == 'U')
+            return 1;
+        return 0;
     }
 
     private static boolean isLiteral(char c) {
         return (Character.isLetterOrDigit(c) && c != 'U') || c == '#';
     }
 
+    // describe DFA states
     public static List<String> describeDFA(DFA dfa) {
         List<String> lines = new ArrayList<>();
-        for (State state : dfa.states) {
-            lines.add("State q" + state.id + (state.isAccept ? " (accept)" : ""));
-            for (Map.Entry<Character, State> entry : state.transitions.entrySet()) {
-                lines.add("  --" + entry.getKey() + "--> q" + entry.getValue().id);
+        for (State s : dfa.states) {
+            lines.add("State q" + s.id + (s.isAccept ? " (accept)" : ""));
+            for (Map.Entry<Character, State> e : s.transitions.entrySet()) {
+                lines.add("  --" + e.getKey() + "--> q" + e.getValue().id);
             }
         }
         return lines;

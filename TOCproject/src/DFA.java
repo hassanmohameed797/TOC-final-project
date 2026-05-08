@@ -8,7 +8,7 @@ public class DFA {
 
     void addState(State s) {
         states.add(s);
-        if (startState == null) startState = s; ///////////////explain
+        if (startState == null) startState = s;
     }
 
     boolean simulate(String input) {
