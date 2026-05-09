@@ -87,16 +87,3 @@ This project is a final project for a **Theory of Computation** course. It demon
 
 - **Java** — core implementation language
 - No external libraries — pure standard Java
-
----
-
-## 👤 Author
-
-**Hassan Mohamed**
-- GitHub: [@hassanmohameed797](https://github.com/hassanmohameed797)
-
----
-
-## 📄 License
-
-This project is open source and available for educational use.
