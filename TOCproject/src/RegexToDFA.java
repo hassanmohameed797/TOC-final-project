@@ -69,6 +69,21 @@ public class RegexToDFA {
         }
     }
 
+    // plus node
+    private static class Plus extends Node {
+        Plus(Node child, Map<Integer, Set<Integer>> followpos) {
+            nullable = child.nullable; // A+ is nullable only if A is nullable
+            firstpos.addAll(child.firstpos);
+            lastpos.addAll(child.lastpos);
+
+            for (int i : child.lastpos) {
+                if (!followpos.containsKey(i))
+                    followpos.put(i, new HashSet<>());
+                followpos.get(i).addAll(child.firstpos);
+            }
+        }
+    }
+
     // main build method
     public static DFA buildFromRegex(String regex) {
         if (regex == null || regex.trim().isEmpty()) {
@@ -97,7 +112,7 @@ public class RegexToDFA {
     }
 
     private static boolean needsConcat(char a, char b) {
-        return (isLiteral(a) || a == ')' || a == '*') && (isLiteral(b) || b == '(');
+        return (isLiteral(a) || a == ')' || a == '*' || a == '+') && (isLiteral(b) || b == '(');
     }
 
     // convert to postfix using shunting yard
@@ -159,6 +174,9 @@ public class RegexToDFA {
             } else if (c == '*') {
                 Node child = stack.pop();
                 stack.push(new Star(child, followpos));
+            } else if (c == '+') {
+                Node child = stack.pop();
+                stack.push(new Plus(child, followpos));
             }
         }
 
@@ -204,11 +222,11 @@ public class RegexToDFA {
     }
 
     private static boolean isOperator(char c) {
-        return c == '|' || c == '*' || c == CONCAT || c == 'U';
+        return c == '|' || c == '*' || c == '+' || c == CONCAT || c == 'U';
     }
 
     private static int prec(char c) {
-        if (c == '*')
+        if (c == '*' || c == '+')
             return 3;
         if (c == CONCAT)
             return 2;
