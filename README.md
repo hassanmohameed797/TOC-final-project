@@ -27,32 +27,6 @@ This project walks through the full automata construction pipeline:
 
 ---
 
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Java JDK 8 or higher
-- Any Java IDE (IntelliJ, Eclipse, VS Code) or a terminal
-
-### Clone the Repository
-
-```bash
-git clone https://github.com/hassanmohameed797/TOC-final-project.git
-cd TOC-final-project
-```
-
-### Compile & Run
-
-```bash
-cd TOCproject
-javac *.java
-java Main
-```
-
-> Replace `Main` with the actual entry-point class name if different.
-
----
-
 ## 📂 Project Structure
 
 ```
