@@ -57,7 +57,10 @@ public class TOC {
             DFA dfa;
             try {
                 validateRegex(regex);
-                dfa = RegexToDFA.buildFromRegex(regex);
+                RegexToDFA.buildFromRegex(regex, false);
+                
+                System.out.println("--- Regex to DFA Conversion Steps ---");
+                dfa = RegexToDFA.buildFromRegex(regex, true);
             } catch (IllegalArgumentException e) {
                 System.out.println("Invalid regular expression: " + e.getMessage());
                 continue;
@@ -68,17 +71,30 @@ public class TOC {
                 continue;
             }
 
+            System.out.println("Example: regex 'abb' matches only 'abb'.");
             System.out.println("Use '(a|b)*abb' to match strings ending with 'abb'.");
             System.out.println("Use 'U' for union (e.g., aUb is same as a|b).");
-            System.out.println("Generated DFA:");
+            
+            System.out.println("\n--- Generated NFA ---");
+            for (String line : RegexToDFA.getNFADescription(regex)) {
+                System.out.println(line);
+            }
+
+            System.out.println("\n--- Generated DFA ---");
             List<String> dfaLines = RegexToDFA.describeDFA(dfa);
             for (String line : dfaLines) {
                 System.out.println(line);
             }
+            
+            System.out.println("\n--- Minimized DFA ---");
+            dfa.minimize();
+            List<String> minDfaLines = RegexToDFA.describeDFA(dfa);
+            for (String line : minDfaLines) {
+                System.out.println(line);
+            }
 
             while (true) {
-                System.out.print(
-                        "Enter a test string, or enter a new regex (include |, U, *, +, or parentheses) to create new dfa or type 'exit' to quit: ");
+                System.out.print("Enter a test string, or enter a new regex (include |, U, *, +, or parentheses) to create new dfa or type 'exit' to quit: ");
                 String input = sc.nextLine();
 
                 if (input.equalsIgnoreCase("exit")) {
@@ -88,17 +104,27 @@ public class TOC {
                 }
 
                 // If input is regex rebuild a new dfa
-                if (input.indexOf('|') >= 0 || input.indexOf('U') >= 0 || input.indexOf('*') >= 0
-                        || input.indexOf('+') >= 0 || input.indexOf('(') >= 0 || input.indexOf(')') >= 0) {
+                if (input.indexOf('|') >= 0 || input.indexOf('U') >= 0 || input.indexOf('*') >= 0 || input.indexOf('+') >= 0 || input.indexOf('(') >= 0 || input.indexOf(')') >= 0) {
                     try {
                         validateRegex(input);
-                        DFA newDfa = RegexToDFA.buildFromRegex(input);
+                        // dry run first to catch any errors before displaying partial steps
+                        RegexToDFA.buildFromRegex(input, false);
+
+                        System.out.println("\n--- Regex to DFA Conversion Steps ---");
+                        DFA newDfa = RegexToDFA.buildFromRegex(input, true);
                         if (newDfa != null) {
                             dfa = newDfa;
-                            System.out.println("Replaced current DFA with new regex: " + input);
-                            System.out.println("Generated DFA:");
-                            for (String line : RegexToDFA.describeDFA(dfa))
-                                System.out.println(line);
+                            System.out.println("Replaced current automatas with new regex: " + input);
+                            
+                            System.out.println("\n--- Generated NFA ---");
+                            for (String line : RegexToDFA.getNFADescription(input)) System.out.println(line);
+                            
+                            System.out.println("\n--- Generated DFA ---");
+                            for (String line : RegexToDFA.describeDFA(dfa)) System.out.println(line);
+                            
+                            System.out.println("\n--- Minimized DFA ---");
+                            dfa.minimize();
+                            for (String line : RegexToDFA.describeDFA(dfa)) System.out.println(line);
                         }
                     } catch (IllegalArgumentException e) {
                         System.out.println("Invalid regular expression: " + e.getMessage());
